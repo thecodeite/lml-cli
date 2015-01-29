@@ -1,0 +1,147 @@
+#!/usr/bin/env ruby
+
+require 'date'
+require 'net/http'
+require 'json'
+require 'readline'
+
+#look in current dir for config
+if File.file?('./.lml') then
+  File.open('./.lml') { |file|
+    $config = JSON.parse(file.read)
+  }
+elsif File.file?(File.expand_path('~/.lml')) then
+  File.open(File.expand_path('~/.lml')) { |file|
+    $config = JSON.parse(file.read)
+  }
+else
+  puts "No config"
+  exit
+end
+
+puts $config
+
+$today = Date.today
+$apiHost = $config["host"]
+$apiPort = $config["port"]
+$apiBaseUrl = "http://#{$apiHost}:#{$apiPort}"
+$history = []
+$historyPos = 0
+$historyFile = File.expand_path('~/.lmlhistory')
+
+if File.file?($historyFile) then
+  File.open($historyFile) {|f|
+    f.each_line{|line|
+      Readline::HISTORY.push line.chomp
+    }
+  }
+else
+  File.open($historyFile, "w") {}
+end
+
+$alive = true
+
+commands = {
+  "exit" => lambda {|args| quit()},
+  "end" => lambda {|args| quit()}, 
+  "quit" => lambda {|args| quit()},
+
+  "ls" => lambda {|args| list()},
+  "list" => lambda {|args| list()},
+  "set" => lambda {|args| set(args)},
+  "delete" => lambda {|args| delete(args)},
+
+  "n" => lambda{|args| go(['+1'])},
+  ">" => lambda{|args| go(['+1'])},
+  "next" => lambda{|args| go(['+1'])},
+  "p" => lambda{|args| go(['-1'])},
+  "<" => lambda{|args| go(['-1'])},
+  "prev" => lambda{|args| go(['-1'])},
+
+  "go" => lambda{|args| go(args)},
+}
+
+LIST = commands.keys.sort
+comp = proc { |s|LIST.grep(/^#{Regexp.escape(s)}/) } 
+Readline.completion_append_character = " "
+Readline.completion_proc =  comp
+
+def go(args)
+  target = args[0].downcase
+
+  if target == "today" then
+    $today = Date.today
+  elsif (Date.parse(target) rescue false) then
+    $today = Date.parse(target)
+  elsif target.start_with?('+') and ( Integer(target[1..-1]) rescue false) then
+    $today = $today + Integer(target[1..-1]) 
+  elsif target.start_with?('-') and ( Integer(target[1..-1]) rescue false) then
+    $today = $today - Integer(target[1..-1]) 
+  else
+    puts "Don't know how to go to #{target}"
+    return
+  end
+    
+  list()
+end
+
+def quit()
+  puts "Bye!"
+  $alive = false
+end
+
+def set(args)
+  set = args[0];
+
+  key,value = set.split('=')
+
+  path= "/days/#{$today.strftime('%F')}/datum/#{key}"
+  body = '{"value": "'+value+'"}'
+  req = Net::HTTP::Put.new(path, initheader = {'Content-Type' => 'application/json'})
+  req.body = body
+  resp = Net::HTTP.new($apiHost, $apiPort).start {|http| http.request(req) }
+  puts resp.code
+ 
+end
+
+def delete(args)
+  key = args[0];
+
+  path= "/days/#{$today.strftime('%F')}/datum/#{key}"
+  req = Net::HTTP::Delete.new(path, initheader = {'Content-Type' => 'application/json'})
+  resp = Net::HTTP.new($apiHost, $apiPort).start {|http| http.request(req) }
+  puts resp.code
+ 
+end
+
+def list()
+  url = "#{$apiBaseUrl}/days/#{$today.strftime('%F')}"
+  resp = Net::HTTP.get_response(URI.parse(url))
+  parsed = JSON.parse(resp.body)
+
+  dps = parsed["dataPoints"]
+  dps.each do |k,v| 
+    puts "#{k}: #{v}"
+  end
+end
+
+while $alive do
+
+  prompt = $today.strftime("%F> ")
+  cmd = Readline.readline(prompt, true)
+
+  $history.push(cmd)
+  open($historyFile, 'a') { |f|
+    f.puts cmd
+  }
+
+  args = cmd.split(' ')
+  command = args.shift
+
+  if commands.has_key?(command) then
+    commands[command].call(args)
+  else
+    puts "Unknown command"
+  end
+
+end
