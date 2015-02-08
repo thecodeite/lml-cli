@@ -2,8 +2,12 @@
 
 require 'date'
 require 'net/http'
+require 'net/https'
 require 'json'
 require 'readline'
+
+puts OpenSSL::X509::DEFAULT_CERT_FILE
+puts OpenSSL::X509::DEFAULT_CERT_DIR
 
 #look in current dir for config
 if File.file?('./.lml') then
@@ -100,12 +104,16 @@ def set(args)
 
   key,value = set.split('=')
 
-  #path= "/api/days/#{$today.strftime('%F')}/datum/#{key}"
+  url = $datumResourceTemplate % [todayIso(), key]
+  uri = URI.parse(url)
+
   path = $datumResourceTemplate % [todayIso(), key]
   body = '{"value": "'+value+'"}'
   req = Net::HTTP::Put.new(path, initheader = {'Content-Type' => 'application/json'})
   req.body = body
-  resp = Net::HTTP.new($apiHost, $apiPort).start {|http| http.request(req) }
+  http = Net::HTTP.new(uri.host, uri.port)
+  http.use_ssl = (uri.scheme == "https")
+  resp = http.start {|http| http.request(req) }
   puts resp.code
  
 end
@@ -113,19 +121,26 @@ end
 def delete(args)
   key = args[0];
 
-  path = $datumResourceTemplate % [todayIso(), key]
-  req = Net::HTTP::Delete.new(path, initheader = {'Content-Type' => 'application/json'})
-  resp = Net::HTTP.new($apiHost, $apiPort).start {|http| http.request(req) }
+  url = $datumResourceTemplate % [todayIso(), key]
+  uri = URI.parse(url)
+
+  http = Net::HTTP::Delete.new(uri.path, initheader = {'Content-Type' => 'application/json'})
+
+  http.use_ssl = (uri.scheme == "https")
+  http = Net::HTTP.new(uri.host, uri.port)
+  resp = http.start {|http| http.request(req) }
   puts resp.code
  
 end
 
 def list()
-  #url = "#{$apiBaseUrl}/days/#{$today.strftime('%F')}"
-  
   url = $dayResourceTemplate % [todayIso()]
-  puts url
-  resp = Net::HTTP.get_response(URI.parse(url))
+  uri = URI.parse(url)
+
+  req = Net::HTTP::Get.new(uri.path)
+  http = Net::HTTP.new(uri.host, uri.port)
+  http.use_ssl = (uri.scheme == "https")
+  resp = http.start {|http| http.request(req) } 
   parsed = JSON.parse(resp.body)
 
   dps = parsed["dataPoints"]
@@ -134,6 +149,7 @@ def list()
   end
 end
 
+list()
 while $alive do
 
   #LIST = command_names

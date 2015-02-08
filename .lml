@@ -1,3 +1,5 @@
 {
-  "api": "http://localhost:8003/api"
+  "api": "http://localhost:8003/api",
+  "apix": "https://logmy.life/api",
+  "apii": "https://google.com/api"
 }
